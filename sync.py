@@ -1,10 +1,7 @@
 """
-Wattline → AnyViz Synchronisation
-Liest historische Messwerte (readings) von der Wattline API
-und schreibt sie als TagValues in AnyViz.
-
-Wird als Cronjob ausgeführt, z.B. stündlich:
-    0 * * * * /usr/bin/python3 /path/to/sync.py
+Wattline → GitHub Pages JSON Synchronisation
+Liest Messwerte von der Wattline API und schreibt sie
+als data.json in den docs/ Ordner (GitHub Pages).
 """
 
 import requests
@@ -12,166 +9,125 @@ import logging
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import os
 
-from config import (
-    WATTLINE_BASE_URL, WATTLINE_CLIENT_ID, WATTLINE_CLIENT_SECRET,
-    WATTLINE_USERNAME, WATTLINE_PASSWORD,
-    ANYVIZ_BASE_URL, ANYVIZ_API_KEY,
-    MEASUREMENT_TAG_MAP, QUANTITY_KEY,
-    SYNC_LOOKBACK_HOURS, STATE_FILE
-)
+# ── Konfiguration aus Umgebungsvariablen ───────────────────────────────────────
+WATTLINE_BASE_URL      = os.environ.get("WATTLINE_BASE_URL", "https://energiedatenportal.wattline.com")
+WATTLINE_CLIENT_ID     = "api"
+WATTLINE_CLIENT_SECRET = os.environ.get("WATTLINE_CLIENT_SECRET", "")
+WATTLINE_USERNAME      = os.environ.get("WATTLINE_USERNAME", "")
+WATTLINE_PASSWORD      = os.environ.get("WATTLINE_PASSWORD", "")
 
-# ── Logging ────────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("sync.log"),
-        logging.StreamHandler()
-    ]
-)
+# Measurement-IDs für Zähler 50206503647
+MEASUREMENT_IDS = [
+    "0195ff97-9957-7676-a5b9-5f09089540cd",
+    "0195ff97-9957-7676-a5b9-5f0924b2dd3d",
+    "0195ff97-9957-7676-a5b9-5f0a800d37dc",
+]
+
+QUANTITY_KEY    = "energy_sum"
+OUTPUT_FILE     = "docs/data.json"
+LOOKBACK_HOURS  = 24
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
 
-# ── Wattline Auth ──────────────────────────────────────────────────────────────
-
 def get_wattline_token() -> str:
-    """OAuth2 Password-Grant gegen Wattline Keycloak."""
     url = f"{WATTLINE_BASE_URL}/auth/realms/wattline/protocol/openid-connect/token"
-    data = {
+    resp = requests.post(url, data={
         "grant_type": "password",
         "client_id": WATTLINE_CLIENT_ID,
         "client_secret": WATTLINE_CLIENT_SECRET,
         "username": WATTLINE_USERNAME,
         "password": WATTLINE_PASSWORD,
-    }
-    resp = requests.post(url, data=data, timeout=30)
+    }, timeout=30)
     resp.raise_for_status()
-    token = resp.json()["access_token"]
     log.info("Wattline Token erhalten.")
-    return token
+    return resp.json()["access_token"]
 
 
-# ── Wattline Daten abrufen ─────────────────────────────────────────────────────
-
-def get_readings(token: str, measurement_id: str, start: datetime, end: datetime) -> list[dict]:
-    """
-    Liefert alle Messwerte (readings) einer Messreihe im Zeitraum [start, end].
-    Paginiert automatisch über 'links.next'.
-    """
+def get_readings(token: str, measurement_id: str, start: datetime, end: datetime) -> list:
     url = f"{WATTLINE_BASE_URL}/measurements/{measurement_id}/readings"
     params = {
         "quantity": QUANTITY_KEY,
         "time(gte)": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "time(lt)": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "time(lt)":  end.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "limit": 1000,
     }
     headers = {"Authorization": f"Bearer {token}"}
     all_readings = []
-
     while url:
         resp = requests.get(url, params=params, headers=headers, timeout=30)
         resp.raise_for_status()
         body = resp.json()
         all_readings.extend(body.get("data", []))
-        # Paginierung: nächste Seite
         url = body.get("links", {}).get("next")
-        params = {}  # next-URL enthält bereits alle Parameter
-
-    log.info("  %d Messwerte für Measurement %s abgerufen.", len(all_readings), measurement_id)
+        params = {}
     return all_readings
 
 
-# ── AnyViz schreiben ───────────────────────────────────────────────────────────
-
-def write_to_anyviz(tag_id: int, value: float) -> None:
-    """Schreibt einen einzelnen Wert in einen AnyViz-Tag (aktueller Wert)."""
-    url = f"{ANYVIZ_BASE_URL}/api/TagValue"
-    headers = {
-        "Content-Type": "application/json",
-    }
-    params = {"id": tag_id, "ApiKey": ANYVIZ_API_KEY}
-    resp = requests.put(url, params=params, headers=headers,
-                        data=json.dumps(value), timeout=30)
-    resp.raise_for_status()
+def extract_value(reading: dict):
+    for qv in reading.get("quantityValues", []):
+        if isinstance(qv.get("value"), (int, float)):
+            return qv["value"], qv.get("unit", "")
+    return None, None
 
 
-# ── State: letzter erfolgreicher Sync ─────────────────────────────────────────
+def run_sync():
+    log.info("=== Starte Wattline → GitHub Pages Sync ===")
 
-def load_last_sync() -> datetime:
-    """Lädt den Zeitstempel des letzten Syncs aus einer JSON-Datei."""
-    path = Path(STATE_FILE)
-    if path.exists():
-        with open(path) as f:
-            data = json.load(f)
-        ts = datetime.fromisoformat(data["last_sync"])
-        log.info("Letzter Sync: %s", ts.isoformat())
-        return ts
-    # Erster Lauf: letzten N Stunden nachladen
-    fallback = datetime.now(timezone.utc) - timedelta(hours=SYNC_LOOKBACK_HOURS)
-    log.info("Kein State gefunden – Fallback: %s", fallback.isoformat())
-    return fallback
+    end   = datetime.now(timezone.utc)
+    start = end - timedelta(hours=LOOKBACK_HOURS)
 
-
-def save_last_sync(ts: datetime) -> None:
-    with open(STATE_FILE, "w") as f:
-        json.dump({"last_sync": ts.isoformat()}, f)
-    log.info("State gespeichert: %s", ts.isoformat())
-
-
-# ── Hauptlogik ─────────────────────────────────────────────────────────────────
-
-def run_sync() -> None:
-    log.info("=== Starte Wattline → AnyViz Sync ===")
-
-    # Zeitfenster bestimmen
-    start = load_last_sync()
-    end = datetime.now(timezone.utc)
-
-    # Wattline Token holen
     token = get_wattline_token()
 
-    errors = 0
-    for measurement_id, tag_id in MEASUREMENT_TAG_MAP.items():
-        log.info("Verarbeite Measurement %s → AnyViz Tag %s", measurement_id, tag_id)
+    # Alle Messreihen abrufen
+    results = {}
+    timeseries = {}
+
+    for mid in MEASUREMENT_IDS:
+        log.info("Verarbeite Measurement %s", mid)
         try:
-            readings = get_readings(token, measurement_id, start, end)
+            readings = get_readings(token, mid, start, end)
             if not readings:
-                log.info("  Keine neuen Messwerte.")
+                log.info("  Keine Messwerte.")
                 continue
 
-            # Den letzten (aktuellsten) Wert in AnyViz schreiben
-            # Wattline liefert quantityValues pro Zeitstempel
-            last_reading = readings[-1]
-            quantity_values = last_reading.get("quantityValues", [])
+            # Letzter Wert
+            last = readings[-1]
+            value, unit = extract_value(last)
+            if value is not None:
+                results[mid] = {
+                    "value": value,
+                    "unit": unit,
+                    "time": last.get("time", ""),
+                }
 
-            value_to_write = None
-            for qv in quantity_values:
-                # Numerischen Wert suchen (nicht Status-Strings wie "MEASURED")
-                if isinstance(qv.get("value"), (int, float)):
-                    value_to_write = qv["value"]
-                    break
+            # Zeitreihe (alle Werte)
+            series = []
+            for r in readings:
+                v, u = extract_value(r)
+                if v is not None:
+                    series.append({"time": r.get("time", ""), "value": v})
+            timeseries[mid] = series
 
-            if value_to_write is None:
-                log.warning("  Kein numerischer Wert gefunden in letztem Reading.")
-                continue
-
-            log.info("  Schreibe Wert %.4f in Tag %s.", value_to_write, tag_id)
-            write_to_anyviz(tag_id, value_to_write)
-
-        except requests.HTTPError as e:
-            log.error("  HTTP-Fehler: %s", e)
-            errors += 1
         except Exception as e:
-            log.error("  Unerwarteter Fehler: %s", e)
-            errors += 1
+            log.error("  Fehler: %s", e)
 
-    # State nur speichern wenn kein schwerwiegender Fehler
-    if errors == 0:
-        save_last_sync(end)
-    else:
-        log.warning("%d Fehler aufgetreten – State wird NICHT aktualisiert.", errors)
+    # JSON ausgeben
+    output = {
+        "updated": end.isoformat(),
+        "zaehler": "50206503647",
+        "latest": results,
+        "timeseries": timeseries,
+    }
 
+    Path("docs").mkdir(exist_ok=True)
+    with open(OUTPUT_FILE, "w") as f:
+        json.dump(output, f, indent=2)
+
+    log.info("Gespeichert: %s", OUTPUT_FILE)
     log.info("=== Sync beendet ===")
 
 
