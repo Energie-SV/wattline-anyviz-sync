@@ -1,0 +1,30 @@
+name: Discovery - IDs ermitteln
+
+on:
+  workflow_dispatch:  # Nur manuell ausführen
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests
+
+      - name: Discovery ausführen
+        env:
+          WATTLINE_BASE_URL:      ${{ secrets.WATTLINE_BASE_URL }}
+          WATTLINE_CLIENT_SECRET: ${{ secrets.WATTLINE_CLIENT_SECRET }}
+          WATTLINE_USERNAME:      ${{ secrets.WATTLINE_USERNAME }}
+          WATTLINE_PASSWORD:      ${{ secrets.WATTLINE_PASSWORD }}
+          ANYVIZ_BASE_URL:        ${{ secrets.ANYVIZ_BASE_URL }}
+          ANYVIZ_API_KEY:         ${{ secrets.ANYVIZ_API_KEY }}
+        run: python discover.py
