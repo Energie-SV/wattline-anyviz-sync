@@ -88,10 +88,9 @@ def write_to_anyviz(tag_id: int, value: float) -> None:
     """Schreibt einen einzelnen Wert in einen AnyViz-Tag (aktueller Wert)."""
     url = f"{ANYVIZ_BASE_URL}/api/TagValue"
     headers = {
-        "Authorization": f"Bearer {ANYVIZ_API_KEY}",
         "Content-Type": "application/json",
     }
-    params = {"id": tag_id}
+    params = {"id": tag_id, "ApiKey": ANYVIZ_API_KEY}
     resp = requests.put(url, params=params, headers=headers,
                         data=json.dumps(value), timeout=30)
     resp.raise_for_status()
