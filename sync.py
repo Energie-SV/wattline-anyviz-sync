@@ -27,7 +27,7 @@ MEASUREMENT_IDS = [
 
 QUANTITY_KEY    = "energy_sum"
 OUTPUT_FILE     = "docs/data.json"
-LOOKBACK_HOURS  = 24
+LOOKBACK_HOURS  = 168  # 7 Tage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
