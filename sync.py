@@ -97,7 +97,7 @@ def run_sync():
             value, unit = extract_value(last)
 
             # Zeitstempel – Wattline verwendet "time" auf oberster Ebene
-            timestamp = last.get("time") or last.get("timestamp") or last.get("date") or ""
+            timestamp = last.get("start") or last.get("time") or ""
             log.info("  Letzter Wert: %s %s @ %s", value, unit, timestamp)
 
             if value is not None:
@@ -111,7 +111,7 @@ def run_sync():
             series = []
             for r in readings:
                 v, u = extract_value(r)
-                ts = r.get("time") or r.get("timestamp") or r.get("date") or ""
+                ts = r.get("start") or r.get("time") or ""
                 if v is not None:
                     series.append({"time": ts, "value": v})
             timeseries[mid] = series
