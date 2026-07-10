@@ -1,7 +1,5 @@
 """
 Wattline → GitHub Pages JSON Synchronisation
-Liest Messwerte von der Wattline API und schreibt sie
-als data.json in den docs/ Ordner (GitHub Pages).
 """
 
 import requests
@@ -11,18 +9,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
 
-# ── Konfiguration aus Umgebungsvariablen ───────────────────────────────────────
 WATTLINE_BASE_URL      = os.environ.get("WATTLINE_BASE_URL", "https://energiedatenportal.wattline.com")
 WATTLINE_CLIENT_ID     = "api"
 WATTLINE_CLIENT_SECRET = os.environ.get("WATTLINE_CLIENT_SECRET", "")
 WATTLINE_USERNAME      = os.environ.get("WATTLINE_USERNAME", "")
 WATTLINE_PASSWORD      = os.environ.get("WATTLINE_PASSWORD", "")
 
-# Measurement-IDs für Zähler 50206503647
 MEASUREMENT_IDS = [
     "0195ff97-9957-7676-a5b9-5f09089540cd",
-    "0195ff97-9957-7676-a5b9-5f0924b2dd3d",
-    "0195ff97-9957-7676-a5b9-5f0a800d37dc",
 ]
 
 QUANTITY_KEY    = "energy_sum"
@@ -82,7 +76,6 @@ def run_sync():
 
     token = get_wattline_token()
 
-    # Alle Messreihen abrufen
     results = {}
     timeseries = {}
 
@@ -90,32 +83,43 @@ def run_sync():
         log.info("Verarbeite Measurement %s", mid)
         try:
             readings = get_readings(token, mid, start, end)
+            log.info("  %d Readings erhalten.", len(readings))
+
             if not readings:
                 log.info("  Keine Messwerte.")
                 continue
 
+            # Erstes Reading loggen um Struktur zu sehen
+            log.info("  Beispiel-Reading: %s", json.dumps(readings[0]))
+
             # Letzter Wert
             last = readings[-1]
             value, unit = extract_value(last)
+
+            # Zeitstempel – Wattline verwendet "time" auf oberster Ebene
+            timestamp = last.get("time") or last.get("timestamp") or last.get("date") or ""
+            log.info("  Letzter Wert: %s %s @ %s", value, unit, timestamp)
+
             if value is not None:
                 results[mid] = {
                     "value": value,
                     "unit": unit,
-                    "time": last.get("time", ""),
+                    "time": timestamp,
                 }
 
-            # Zeitreihe (alle Werte)
+            # Zeitreihe
             series = []
             for r in readings:
                 v, u = extract_value(r)
+                ts = r.get("time") or r.get("timestamp") or r.get("date") or ""
                 if v is not None:
-                    series.append({"time": r.get("time", ""), "value": v})
+                    series.append({"time": ts, "value": v})
             timeseries[mid] = series
+            log.info("  %d Zeitreihenwerte gespeichert.", len(series))
 
         except Exception as e:
             log.error("  Fehler: %s", e)
 
-    # JSON ausgeben
     output = {
         "updated": end.isoformat(),
         "zaehler": "50206503647",
