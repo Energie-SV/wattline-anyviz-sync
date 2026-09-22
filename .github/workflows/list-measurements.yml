@@ -1,0 +1,27 @@
+name: Wattline Measurements auflisten
+
+on:
+  workflow_dispatch:      # nur manuell startbar (Actions-Tab → Run workflow)
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests
+
+      - name: Measurements auflisten
+        env:
+          WATTLINE_BASE_URL:      ${{ secrets.WATTLINE_BASE_URL }}
+          WATTLINE_CLIENT_SECRET: ${{ secrets.WATTLINE_CLIENT_SECRET }}
+          WATTLINE_USERNAME:      ${{ secrets.WATTLINE_USERNAME }}
+          WATTLINE_PASSWORD:      ${{ secrets.WATTLINE_PASSWORD }}
+        run: python list_measurements.py
