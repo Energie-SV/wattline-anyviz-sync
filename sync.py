@@ -1,5 +1,6 @@
 """
 Wattline → GitHub Pages JSON Synchronisation
+Schlüssel in der data.json sind sprechende Namen (nicht die UUIDs).
 """
 
 import requests
@@ -15,11 +16,13 @@ WATTLINE_CLIENT_SECRET = os.environ.get("WATTLINE_CLIENT_SECRET", "")
 WATTLINE_USERNAME      = os.environ.get("WATTLINE_USERNAME", "")
 WATTLINE_PASSWORD      = os.environ.get("WATTLINE_PASSWORD", "")
 
-MEASUREMENT_IDS = [
-    "0195ff97-9957-7676-a5b9-5f09089540cd",   # MAR32 / Generalvikariat (50206503647) – Strom
-    "019545df-597e-7606-9aa7-92db14323b14",   # Netzübergabe KSH (50199948992) – Strom
-    "0195ff9c-2d10-7141-887a-df161bea1364",   # Maternushaus (50215794849, Untermesspunkt) – Strom
-]
+# Name (so erscheint er im AnyViz-Baum)  ->  Wattline Measurement-UUID
+MEASUREMENTS = {
+    "MAR32":                    "0195ff97-9957-7676-a5b9-5f09089540cd",   # Generalvikariat (50206503647) – Strom
+    "KSH":                      "019545df-597e-7606-9aa7-92db14323b14",   # Netzübergabe (50199948992) – Strom
+    "Maternushaus_Bezug":       "0195ff74-cf60-7342-bce2-8e913a61e6ba",   # (50206503639) – Strom
+    "Maternushaus_Einspeisung": "0195ff9c-2d10-7141-887a-df161bea1364",   # (50215794849) – i.d.R. 0
+}
 
 QUANTITY_KEY    = "energy_sum"
 OUTPUT_FILE     = "docs/data.json"
@@ -81,8 +84,8 @@ def run_sync():
     results = {}
     timeseries = {}
 
-    for mid in MEASUREMENT_IDS:
-        log.info("Verarbeite Measurement %s", mid)
+    for name, mid in MEASUREMENTS.items():
+        log.info("Verarbeite %s (%s)", name, mid)
         try:
             readings = get_readings(token, mid, start, end)
             log.info("  %d Readings erhalten.", len(readings))
@@ -97,7 +100,7 @@ def run_sync():
             log.info("  Letzter Wert: %s %s @ %s", value, unit, timestamp)
 
             if value is not None:
-                results[mid] = {"value": value, "unit": unit, "time": timestamp}
+                results[name] = {"value": value, "unit": unit, "time": timestamp}
 
             series = []
             for r in readings:
@@ -105,7 +108,7 @@ def run_sync():
                 ts = r.get("start") or r.get("time") or ""
                 if v is not None:
                     series.append({"time": ts, "value": v})
-            timeseries[mid] = series
+            timeseries[name] = series
             log.info("  %d Zeitreihenwerte gespeichert.", len(series))
 
         except Exception as e:
@@ -113,7 +116,6 @@ def run_sync():
 
     output = {
         "updated": end.isoformat(),
-        "zaehler": "50206503647",
         "latest": results,
         "timeseries": timeseries,
     }
