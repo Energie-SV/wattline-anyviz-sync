@@ -18,7 +18,7 @@ WATTLINE_PASSWORD      = os.environ.get("WATTLINE_PASSWORD", "")
 MEASUREMENT_IDS = [
     "0195ff97-9957-7676-a5b9-5f09089540cd",   # MAR32 / Generalvikariat (50206503647) – Strom
     "019545df-597e-7606-9aa7-92db14323b14",   # Netzübergabe KSH (50199948992) – Strom
-    "0195ff7b-3790-7c13-a940-d7fe76ef81aa",   # Maternushaus (50215794849) – Strom
+    "0195ff9c-2d10-7141-887a-df161bea1364",   # Maternushaus (50215794849, Untermesspunkt) – Strom
 ]
 
 QUANTITY_KEY    = "energy_sum"
