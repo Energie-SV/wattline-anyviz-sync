@@ -16,8 +16,9 @@ WATTLINE_USERNAME      = os.environ.get("WATTLINE_USERNAME", "")
 WATTLINE_PASSWORD      = os.environ.get("WATTLINE_PASSWORD", "")
 
 MEASUREMENT_IDS = [
-    "0195ff97-9957-7676-a5b9-5f09089540cd",   # MAR32 (50206503647) – Strom, bestehend
-    "019545df-597e-7606-9aa7-92db14323b14",   # Netzübergabe (50199948992) – Strom
+    "0195ff97-9957-7676-a5b9-5f09089540cd",   # MAR32 / Generalvikariat (50206503647) – Strom
+    "019545df-597e-7606-9aa7-92db14323b14",   # Netzübergabe KSH (50199948992) – Strom
+    "0195ff7b-3790-7c13-a940-d7fe76ef81aa",   # Maternushaus (50215794849) – Strom
 ]
 
 QUANTITY_KEY    = "energy_sum"
@@ -90,25 +91,14 @@ def run_sync():
                 log.info("  Keine Messwerte.")
                 continue
 
-            # Erstes Reading loggen um Struktur zu sehen
-            log.info("  Beispiel-Reading: %s", json.dumps(readings[0]))
-
-            # Letzter Wert
             last = readings[-1]
             value, unit = extract_value(last)
-
-            # Zeitstempel – Wattline verwendet "time" auf oberster Ebene
             timestamp = last.get("start") or last.get("time") or ""
             log.info("  Letzter Wert: %s %s @ %s", value, unit, timestamp)
 
             if value is not None:
-                results[mid] = {
-                    "value": value,
-                    "unit": unit,
-                    "time": timestamp,
-                }
+                results[mid] = {"value": value, "unit": unit, "time": timestamp}
 
-            # Zeitreihe
             series = []
             for r in readings:
                 v, u = extract_value(r)
