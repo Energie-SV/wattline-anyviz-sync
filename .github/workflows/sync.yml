@@ -2,7 +2,7 @@ name: Wattline → AnyViz Sync
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "0 6 * * *"      # täglich 1x (~07:00 Winter / 08:00 Sommer DE)
   workflow_dispatch:
 
 jobs:
